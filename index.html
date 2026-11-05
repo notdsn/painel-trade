@@ -1,0 +1,124 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <meta name="theme-color" content="#0a0e0a" />
+  <meta name="description" content="Painel de agentes de trade em simulação — dinheiro de mentira." />
+  <title>Painel Trade · Simulação</title>
+  <link rel="stylesheet" href="styles.css" />
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>▣</text></svg>" />
+</head>
+<body>
+  <div id="app">
+    <header class="header">
+      <div class="header-top">
+        <div class="brand">
+          <span class="brand-mark">▣</span>
+          <span class="brand-name">PAINEL<span class="dim">/</span>TRADE</span>
+        </div>
+        <span class="sim-badge" title="Nunca opera com dinheiro real">SIMULAÇÃO — dinheiro de mentira</span>
+      </div>
+      <div class="stats" id="header-stats">
+        <div class="stat"><span class="stat-label">Saldo</span><span class="stat-value" id="stat-balance">US$ 50,00</span></div>
+        <div class="stat"><span class="stat-label">Equity</span><span class="stat-value" id="stat-equity">US$ 50,00</span></div>
+        <div class="stat"><span class="stat-label">Trades</span><span class="stat-value" id="stat-trades">0</span></div>
+        <div class="stat"><span class="stat-label">W / L</span><span class="stat-value" id="stat-wl">0 / 0</span></div>
+        <div class="stat"><span class="stat-label">Tempo</span><span class="stat-value" id="stat-runtime">00:00:00</span></div>
+        <div class="stat"><span class="stat-label">Status</span><span class="stat-value" id="stat-status"><span class="pulse on"></span>ATIVO</span></div>
+      </div>
+      <div class="controls">
+        <button type="button" id="btn-pause" class="btn">⏸ Pausar</button>
+        <button type="button" id="btn-settings" class="btn">⚙ Config</button>
+        <button type="button" id="btn-reset" class="btn btn-danger">↺ Reset</button>
+      </div>
+    </header>
+
+    <p class="disclaimer">Isto é só uma simulação. Tokens novos são muito arriscados e a maioria das pessoas perde dinheiro com eles.</p>
+
+    <main class="grid" id="agents-grid">
+      <section class="panel" id="panel-scanner" data-agent="SCANNER">
+        <h2 class="panel-title"><span class="agent-dot"></span>SCANNER <span class="panel-sub">pares novos / volume</span></h2>
+        <div class="panel-body" id="scanner-body"><div class="empty">Aguardando dados…</div></div>
+      </section>
+
+      <section class="panel" id="panel-rug" data-agent="RUG CHECK">
+        <h2 class="panel-title"><span class="agent-dot warn"></span>RUG CHECK <span class="panel-sub">filtros de risco</span></h2>
+        <div class="panel-body" id="rug-body"><div class="empty">Aguardando…</div></div>
+      </section>
+
+      <section class="panel" id="panel-sizer" data-agent="SIZER">
+        <h2 class="panel-title"><span class="agent-dot"></span>SIZER <span class="panel-sub">% do equity</span></h2>
+        <div class="panel-body" id="sizer-body"><div class="empty">Sem posição pendente</div></div>
+      </section>
+
+      <section class="panel" id="panel-executor" data-agent="EXECUTOR">
+        <h2 class="panel-title"><span class="agent-dot"></span>EXECUTOR <span class="panel-sub">posições simuladas</span></h2>
+        <div class="panel-body" id="executor-body"><div class="empty">Nenhuma posição aberta</div></div>
+      </section>
+
+      <section class="panel" id="panel-logger" data-agent="LOGGER">
+        <h2 class="panel-title"><span class="agent-dot"></span>LOGGER <span class="panel-sub">decisões BRT</span></h2>
+        <div class="panel-body log-body" id="logger-body"><div class="empty">Sem eventos ainda</div></div>
+      </section>
+
+      <section class="panel" id="panel-equity" data-agent="EQUITY">
+        <h2 class="panel-title"><span class="agent-dot good"></span>EQUITY <span class="panel-sub">curva</span></h2>
+        <div class="panel-body equity-body">
+          <canvas id="equity-chart" width="600" height="160" aria-label="Curva de equity"></canvas>
+          <div class="equity-meta" id="equity-meta">Saldo inicial US$ 50,00</div>
+        </div>
+      </section>
+    </main>
+
+    <footer class="footer">
+      <span>Fonte: DexScreener (público) · poll ~20s · fills com slippage 2% + taxa</span>
+      <span>paper-trading only · sem carteira · sem chaves</span>
+    </footer>
+  </div>
+
+  <div id="settings-modal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="settings-title">
+    <div class="modal-card">
+      <h3 id="settings-title">Configurações</h3>
+      <form id="settings-form">
+        <label>Saldo inicial (US$)
+          <input type="number" name="startingBalance" min="10" max="100000" step="1" />
+        </label>
+        <label>Take-profit (%)
+          <input type="number" name="takeProfitPct" min="1" max="500" step="0.5" />
+        </label>
+        <label>Stop-loss (%)
+          <input type="number" name="stopLossPct" min="1" max="90" step="0.5" />
+        </label>
+        <label>Máx. % do equity por trade
+          <input type="number" name="maxPctPerTrade" min="1" max="50" step="0.5" />
+        </label>
+        <label>Máx. posições abertas
+          <input type="number" name="maxOpenPositions" min="1" max="10" step="1" />
+        </label>
+        <label>Liquidez mínima (US$)
+          <input type="number" name="minLiquidityUsd" min="1000" max="5000000" step="1000" />
+        </label>
+        <label>Volume 1h mínimo (US$)
+          <input type="number" name="minVolumeH1" min="100" max="1000000" step="100" />
+        </label>
+        <label>Idade máx. do par (horas)
+          <input type="number" name="maxPairAgeHours" min="1" max="720" step="1" />
+        </label>
+        <label>Time-stop (minutos)
+          <input type="number" name="timeStopMinutes" min="5" max="1440" step="5" />
+        </label>
+        <label>Momentum mín. h1 (%)
+          <input type="number" name="minMomentumH1" min="-50" max="200" step="0.5" />
+        </label>
+        <div class="modal-actions">
+          <button type="button" id="btn-settings-cancel" class="btn">Cancelar</button>
+          <button type="submit" class="btn btn-primary">Salvar</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>
