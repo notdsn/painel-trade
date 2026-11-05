@@ -387,6 +387,12 @@ body {
   outline: none;
   border-color: var(--green-dim);
 }
+.modal-warn {
+  margin: 0 0 14px;
+  color: #ffcc88;
+  font-size: 13px;
+  line-height: 1.45;
+}
 .modal-actions {
   display: flex;
   gap: 8px;
@@ -412,4 +418,15 @@ body {
   }
   body { font-size: 13px; }
   .brand { font-size: 16px; }
+}
+
+.error-badge {
+  margin-top: 8px;
+  padding: 6px 10px;
+  background: #2a1208;
+  border: 1px solid #6a3010;
+  border-radius: 4px;
+  color: #ffaa66;
+  font-size: 11px;
+  word-break: break-word;
 }

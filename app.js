@@ -31,6 +31,9 @@
   let clockTimer = null;
   let seenPairs = new Map(); // pairAddress -> last volume h1
   let lastScan = [];
+  let lastRug = [];
+  let cycleRunning = false;
+  let lastError = null;
 
   // ---------- utils ----------
   function money(n) {
@@ -92,15 +95,30 @@
       if (!raw) return blankState();
       const parsed = JSON.parse(raw);
       const base = blankState();
+      const settings = { ...DEFAULTS, ...(parsed.settings || {}) };
+      for (const k of Object.keys(DEFAULTS)) {
+        const v = Number(settings[k]);
+        settings[k] = Number.isFinite(v) ? v : DEFAULTS[k];
+      }
+      let balance = Number(parsed.balance);
+      if (!Number.isFinite(balance)) balance = settings.startingBalance;
+      const positions = (Array.isArray(parsed.positions) ? parsed.positions : [])
+        .filter((pos) => pos && Number.isFinite(Number(pos.entryPrice)) && Number(pos.entryPrice) > 0 && Number.isFinite(Number(pos.sizeUsd)));
+      const log = Array.isArray(parsed.log) ? parsed.log : [];
+      let equityCurve = Array.isArray(parsed.equityCurve) ? parsed.equityCurve.filter((e) => e && Number.isFinite(Number(e.equity))) : [];
+      if (!equityCurve.length) equityCurve = [{ t: Date.now(), equity: balance }];
       return {
         ...base,
         ...parsed,
-        settings: { ...DEFAULTS, ...(parsed.settings || {}) },
-        positions: Array.isArray(parsed.positions) ? parsed.positions : [],
-        log: Array.isArray(parsed.log) ? parsed.log : [],
-        equityCurve: Array.isArray(parsed.equityCurve) && parsed.equityCurve.length
-          ? parsed.equityCurve
-          : base.equityCurve,
+        settings,
+        balance,
+        positions,
+        log,
+        equityCurve,
+        trades: Number.isFinite(Number(parsed.trades)) ? Number(parsed.trades) : 0,
+        wins: Number.isFinite(Number(parsed.wins)) ? Number(parsed.wins) : 0,
+        losses: Number.isFinite(Number(parsed.losses)) ? Number(parsed.losses) : 0,
+        knownTokens: parsed.knownTokens && typeof parsed.knownTokens === "object" ? parsed.knownTokens : {},
       };
     } catch (_) {
       return blankState();
@@ -155,8 +173,12 @@
   // ---------- DexScreener ----------
   async function fetchJson(url) {
     const res = await fetch(url, { cache: "no-store" });
-    if (!res.ok) throw new Error("HTTP " + res.status + " " + url);
-    return res.json();
+    if (res.status === 429) {
+      throw new Error("limite da API (429) — aguardando próximo ciclo");
+    }
+    if (!res.ok) throw new Error("HTTP " + res.status);
+    const data = await res.json();
+    return data;
   }
 
   async function fetchCandidates() {
@@ -320,6 +342,8 @@
 
   function simulateBuy(pair, sizeUsd) {
     const mid = Number(pair.priceUsd);
+    if (!Number.isFinite(mid) || mid <= 0) return null;
+    if (!Number.isFinite(sizeUsd) || sizeUsd <= 0) return null;
     // Adverse slippage on entry
     const fill = mid * (1 + SLIPPAGE);
     const fee = sizeUsd * FEE;
@@ -410,8 +434,9 @@
               encodeURIComponent(pos.pairAddress)
           );
           const pair = data?.pair || (data?.pairs && data.pairs[0]);
-          if (pair?.priceUsd) {
-            pos.markPrice = Number(pair.priceUsd);
+          const mk = Number(pair?.priceUsd);
+          if (Number.isFinite(mk) && mk > 0) {
+            pos.markPrice = mk;
           }
         } catch (_) {
           // keep last mark
@@ -444,10 +469,21 @@
 
   async function runCycle() {
     if (state.paused) return;
+    if (cycleRunning) return;
+    cycleRunning = true;
     try {
       const pairs = await fetchCandidates();
-      lastScan = pairs;
-      renderScanner(pairs);
+      if (pairs && pairs.length) {
+        lastScan = pairs;
+        lastError = null;
+        setErrorBadge(null);
+        renderScanner(pairs);
+      } else if (lastScan.length) {
+        // keep last good scanner data; show soft warning
+        setErrorBadge("sem pares novos neste ciclo");
+      } else {
+        renderScanner([]);
+      }
 
       const rugResults = [];
       const equity = currentEquity();
@@ -504,7 +540,7 @@
         openPosition(pair, sizing);
       }
 
-      renderRug(rugResults);
+      if (rugResults.length) { lastRug = rugResults; renderRug(rugResults); } else if (lastRug.length) { renderRug(lastRug); }
       await refreshOpenMarks();
       checkExits();
       renderExecutor();
@@ -512,9 +548,30 @@
       drawEquity();
       saveState();
     } catch (err) {
-      addLog("ERRO", "—", "falha ao buscar dados: " + (err && err.message ? err.message : String(err)));
-      renderScannerError(err);
+      lastError = err && err.message ? err.message : String(err);
+      addLog("ERRO", "—", "falha ao buscar dados: " + lastError);
+      setErrorBadge(lastError);
+      if (lastScan.length) renderScanner(lastScan);
+      else renderScannerError(err);
+    } finally {
+      cycleRunning = false;
     }
+  }
+
+  function setErrorBadge(msg) {
+    let el = document.getElementById("error-badge");
+    if (!msg) {
+      if (el) el.remove();
+      return;
+    }
+    if (!el) {
+      el = document.createElement("div");
+      el.id = "error-badge";
+      el.className = "error-badge";
+      const header = document.querySelector(".header");
+      if (header) header.appendChild(el);
+    }
+    el.textContent = "⚠ " + msg;
   }
 
   // ---------- render ----------
@@ -849,8 +906,13 @@
     renderHeader();
   }
 
-  function resetAll() {
-    if (!confirm("Resetar simulação? Saldo, posições e log serão apagados.")) return;
+  function openResetModal() {
+    $("reset-modal").classList.remove("hidden");
+  }
+  function closeResetModal() {
+    $("reset-modal").classList.add("hidden");
+  }
+  function doReset() {
     const keepSettings = { ...state.settings };
     state = blankState();
     state.settings = keepSettings;
@@ -858,7 +920,11 @@
     state.equityCurve = [{ t: Date.now(), equity: keepSettings.startingBalance }];
     seenPairs = new Map();
     lastScan = [];
+    lastRug = [];
+    lastError = null;
+    setErrorBadge(null);
     saveState();
+    closeResetModal();
     addLog("INFO", "—", "simulação resetada · saldo " + money(state.balance));
     renderAll();
     $("sizer-body").innerHTML = '<div class="empty">Sem posição pendente</div>';
@@ -874,11 +940,22 @@
 
   function bind() {
     $("btn-pause").addEventListener("click", togglePause);
-    $("btn-reset").addEventListener("click", resetAll);
+    $("btn-reset").addEventListener("click", openResetModal);
+    $("btn-reset-cancel").addEventListener("click", closeResetModal);
+    $("btn-reset-confirm").addEventListener("click", doReset);
+    $("reset-modal").addEventListener("click", (e) => {
+      if (e.target === $("reset-modal")) closeResetModal();
+    });
     $("btn-settings").addEventListener("click", openSettings);
     $("btn-settings-cancel").addEventListener("click", closeSettings);
     $("settings-modal").addEventListener("click", (e) => {
       if (e.target === $("settings-modal")) closeSettings();
+    });
+    document.addEventListener("visibilitychange", () => {
+      if (!document.hidden && !state.paused) {
+        // resume: one cycle, do not wipe state
+        runCycle();
+      }
     });
     $("settings-form").addEventListener("submit", (e) => {
       e.preventDefault();
